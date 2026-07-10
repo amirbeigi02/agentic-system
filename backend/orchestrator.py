@@ -1,76 +1,87 @@
 """
-Orchestrator: تنها نقطه‌ی ورودی سیستم.
-- کار کاربر را می‌خواند
-- اگر درخواست ساخت/ویرایش ایجنت جدید بود -> از طریق تول به agent registry اضافه می‌کند
-- در غیر این صورت کار را به سابایجنت مناسب دلگیت می‌کند
-- همه چیز را در حافظه (SQLite) ذخیره می‌کند
+Orchestrator: تنها نقطه‌ی ورودی سیستم (نسخه‌ی Groq - رایگان).
 """
 import os
 import json
-import anthropic
+from groq import Groq
 
 import db
 
-client = anthropic.Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY"))
-MODEL = "claude-sonnet-4-6"
+client = Groq(api_key=os.environ.get("GROQ_API_KEY"))
+MODEL = "llama-3.3-70b-versatile"
 
 
 def _tools_schema():
     return [
         {
-            "name": "delegate_to_agent",
-            "description": "کار را به یکی از ایجنت‌های تخصصی موجود در سیستم واگذار می‌کند و نتیجه را برمی‌گرداند.",
-            "input_schema": {
-                "type": "object",
-                "properties": {
-                    "agent_name": {"type": "string", "description": "نام دقیق ایجنت از لیست موجود"},
-                    "task": {"type": "string", "description": "شرح کامل و دقیق کاری که ایجنت باید انجام دهد"},
+            "type": "function",
+            "function": {
+                "name": "delegate_to_agent",
+                "description": "کار را به یکی از ایجنت‌های تخصصی موجود در سیستم واگذار می‌کند و نتیجه را برمی‌گرداند.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "agent_name": {"type": "string", "description": "نام دقیق ایجنت از لیست موجود"},
+                        "task": {"type": "string", "description": "شرح کامل و دقیق کاری که ایجنت باید انجام دهد"},
+                    },
+                    "required": ["agent_name", "task"],
                 },
-                "required": ["agent_name", "task"],
             },
         },
         {
-            "name": "create_agent",
-            "description": "یک ایجنت تخصصی جدید می‌سازد و آن را برای همیشه به سیستم اضافه می‌کند. فقط وقتی صدا بزن که کاربر صراحتا خواسته ایجنت جدید ساخته شود.",
-            "input_schema": {
-                "type": "object",
-                "properties": {
-                    "name": {"type": "string", "description": "نام یکتای انگلیسی و کوتاه، مثل trader_agent"},
-                    "description": {"type": "string", "description": "توضیح یک خطی که چه زمانی باید این ایجنت صدا زده شود"},
-                    "system_prompt": {"type": "string", "description": "دستورالعمل کامل و حرفه‌ای برای این ایجنت به فارسی"},
+            "type": "function",
+            "function": {
+                "name": "create_agent",
+                "description": "یک ایجنت تخصصی جدید می‌سازد و آن را برای همیشه به سیستم اضافه می‌کند.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "name": {"type": "string", "description": "نام یکتای انگلیسی و کوتاه، مثل trader_agent"},
+                        "description": {"type": "string", "description": "توضیح یک خطی که چه زمانی باید این ایجنت صدا زده شود"},
+                        "system_prompt": {"type": "string", "description": "دستورالعمل کامل و حرفه‌ای برای این ایجنت به فارسی"},
+                    },
+                    "required": ["name", "description", "system_prompt"],
                 },
-                "required": ["name", "description", "system_prompt"],
             },
         },
         {
-            "name": "update_agent",
-            "description": "system_prompt یا توضیح یک ایجنت موجود را ویرایش می‌کند.",
-            "input_schema": {
-                "type": "object",
-                "properties": {
-                    "name": {"type": "string"},
-                    "description": {"type": "string"},
-                    "system_prompt": {"type": "string"},
+            "type": "function",
+            "function": {
+                "name": "update_agent",
+                "description": "system_prompt یا توضیح یک ایجنت موجود را ویرایش می‌کند.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "name": {"type": "string"},
+                        "description": {"type": "string"},
+                        "system_prompt": {"type": "string"},
+                    },
+                    "required": ["name"],
                 },
-                "required": ["name"],
             },
         },
         {
-            "name": "delete_agent",
-            "description": "یک ایجنت غیرپایه را حذف می‌کند.",
-            "input_schema": {
-                "type": "object",
-                "properties": {"name": {"type": "string"}},
-                "required": ["name"],
+            "type": "function",
+            "function": {
+                "name": "delete_agent",
+                "description": "یک ایجنت غیرپایه را حذف می‌کند.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {"name": {"type": "string"}},
+                    "required": ["name"],
+                },
             },
         },
         {
-            "name": "remember_fact",
-            "description": "یک واقعیت مهم و بلندمدت درباره‌ی کاربر یا پروژه‌هایش را در حافظه دائمی ذخیره می‌کند (مثلاً ترجیحات، تصمیمات مهم، نتیجه‌گیری‌های کلیدی پروژه‌ها).",
-            "input_schema": {
-                "type": "object",
-                "properties": {"fact": {"type": "string"}},
-                "required": ["fact"],
+            "type": "function",
+            "function": {
+                "name": "remember_fact",
+                "description": "یک واقعیت مهم و بلندمدت درباره‌ی کاربر یا پروژه‌هایش را در حافظه دائمی ذخیره می‌کند.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {"fact": {"type": "string"}},
+                    "required": ["fact"],
+                },
             },
         },
     ]
@@ -80,13 +91,15 @@ def _run_subagent(agent_name: str, task: str) -> str:
     agent = db.get_agent(agent_name)
     if not agent:
         return f"خطا: ایجنتی با نام '{agent_name}' پیدا نشد."
-    resp = client.messages.create(
+    resp = client.chat.completions.create(
         model=MODEL,
         max_tokens=4000,
-        system=agent["system_prompt"],
-        messages=[{"role": "user", "content": task}],
+        messages=[
+            {"role": "system", "content": agent["system_prompt"]},
+            {"role": "user", "content": task},
+        ],
     )
-    return "".join(b.text for b in resp.content if b.type == "text")
+    return resp.choices[0].message.content or ""
 
 
 def _execute_tool(tool_name: str, tool_input: dict) -> str:
@@ -130,7 +143,7 @@ def _build_system_prompt():
 ۱. اگر کار به یکی از ایجنت‌های تخصصی زیر مربوط است، با تول delegate_to_agent به او واگذار کن.
 ۲. اگر کاربر صریحاً خواست ایجنت جدید ساخته شود، با create_agent بسازش (یک system_prompt حرفه‌ای و کامل برایش بنویس).
 ۳. اگر چیزی مهم و ماندگار درباره کاربر/پروژه‌هایش فهمیدی، با remember_fact ذخیره‌اش کن.
-۴. همیشه پاسخ نهایی را خودت به فارسی، خلاصه و مفید برای کاربر بنویس؛ خروجی خام ساب‌ایجنت را کورکورانه کپی نکن مگر لازم باشد.
+۴. همیشه پاسخ نهایی را خودت به فارسی، خلاصه و مفید برای کاربر بنویس.
 
 ایجنت‌های موجود در سیستم:
 {agents_list}
@@ -154,32 +167,35 @@ def run_turn(session_id: str, user_message: str) -> str:
     tools = _tools_schema()
 
     for _ in range(6):
-        resp = client.messages.create(
+        resp = client.chat.completions.create(
             model=MODEL,
             max_tokens=4000,
-            system=system_prompt,
             tools=tools,
-            messages=messages,
+            messages=[{"role": "system", "content": system_prompt}] + messages,
         )
+        msg = resp.choices[0].message
 
-        if resp.stop_reason != "tool_use":
-            final_text = "".join(b.text for b in resp.content if b.type == "text")
+        if not msg.tool_calls:
+            final_text = msg.content or ""
             db.add_message(session_id, "assistant", final_text)
             return final_text
 
-        messages.append({"role": "assistant", "content": resp.content})
-        tool_results = []
-        for block in resp.content:
-            if block.type == "tool_use":
-                result = _execute_tool(block.name, block.input)
-                tool_results.append({
-                    "type": "tool_result",
-                    "tool_use_id": block.id,
-                    "content": result,
-                })
-                if block.name in ("create_agent", "update_agent", "delete_agent"):
-                    system_prompt = _build_system_prompt()
-        messages.append({"role": "user", "content": tool_results})
+        messages.append({
+            "role": "assistant",
+            "content": msg.content or "",
+            "tool_calls": [tc.model_dump() for tc in msg.tool_calls],
+        })
+
+        for tc in msg.tool_calls:
+            tool_input = json.loads(tc.function.arguments)
+            result = _execute_tool(tc.function.name, tool_input)
+            messages.append({
+                "role": "tool",
+                "tool_call_id": tc.id,
+                "content": result,
+            })
+            if tc.function.name in ("create_agent", "update_agent", "delete_agent"):
+                system_prompt = _build_system_prompt()
 
     fallback = "متاسفانه پردازش این درخواست پیچیده‌تر از حد مجاز شد. لطفاً ساده‌ترش کن."
     db.add_message(session_id, "assistant", fallback)
