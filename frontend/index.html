@@ -187,7 +187,242 @@
     font-family:'JetBrains Mono',monospace; flex-shrink:0;
   }
   .agent-meta{ min-width:0; flex:1; }
-< truncated lines 190-425 >
+  .agent-name{ font-family:'JetBrains Mono',monospace; font-size:13px; color:var(--text); display:flex; align-items:center; gap:6px; }
+  .badge{
+    font-size:9.5px; color:var(--amber); background:var(--amber-soft); border:1px solid rgba(232,163,61,.3);
+    border-radius:5px; padding:1.5px 6px; font-family:'Vazirmatn',sans-serif; font-weight:600;
+  }
+  .agent-desc{ font-size:12.5px; color:var(--text-dim); margin-top:2px; line-height:1.5; }
+  .agent-actions{ display:flex; gap:6px; margin-top:11px; }
+  .btn-icon-sm{
+    display:flex; align-items:center; justify-content:center; gap:5px; padding:7px 11px;
+    border-radius:8px; font-size:12px; font-weight:600; border:1px solid var(--border);
+    background:var(--panel-2); color:var(--text-dim); font-family:'Vazirmatn',sans-serif;
+  }
+  .btn-icon-sm svg{ width:13px; height:13px; }
+  .btn-icon-sm.danger{ color:var(--danger); border-color:rgba(224,100,92,.35); background:var(--danger-soft); }
+
+  .form-box{
+    background:var(--panel); border:1px solid var(--border-soft); border-radius:var(--radius-lg);
+    padding:16px; margin-bottom:6px; box-shadow:var(--shadow-card);
+  }
+  .form-box label{ font-size:11.5px; color:var(--text-faint); display:block; margin:13px 0 6px 0; font-weight:600; }
+  .form-box label:first-of-type{ margin-top:0; }
+  .form-box input, .form-box textarea, .form-box select{
+    width:100%; background:var(--bg); border:1px solid var(--border); color:var(--text);
+    border-radius:10px; padding:11px 13px; font-family:'Vazirmatn',sans-serif; font-size:14px; outline:none;
+    transition:border-color .15s;
+  }
+  .form-box input:focus, .form-box textarea:focus, .form-box select:focus{ border-color:var(--amber); }
+  .form-box textarea{ resize:vertical; min-height:88px; line-height:1.6; }
+  .form-actions{ display:flex; align-items:center; gap:10px; margin-top:14px; }
+
+  .btn-primary{
+    border:none; border-radius:11px; padding:11px 18px; font-family:'Vazirmatn',sans-serif;
+    font-size:13.5px; font-weight:700; background:var(--amber); color:#151b0c;
+    box-shadow:0 4px 14px -5px rgba(232,163,61,.5); display:flex; align-items:center; gap:7px;
+  }
+  .btn-primary:active{ transform:scale(.97); }
+  .status-text{ font-size:12px; color:var(--text-faint); }
+
+  #test-result{
+    margin-top:13px; white-space:pre-wrap; font-size:13px; line-height:1.65; display:none;
+    background:var(--bg); border:1px solid var(--border); border-radius:10px; padding:12px 14px;
+    font-family:'JetBrains Mono',monospace; color:var(--text-dim);
+  }
+  #test-result.show{ display:block; }
+
+  .empty-state{
+    text-align:center; padding:30px 12px; color:var(--text-faint); font-size:12.5px;
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="brand">
+    <div class="brand-icon">
+      <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="var(--amber)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M12 2v4M12 18v4M4.9 4.9l2.8 2.8M16.3 16.3l2.8 2.8M2 12h4M18 12h4M4.9 19.1l2.8-2.8M16.3 7.7l2.8-2.8"/></svg>
+    </div>
+    <div class="brand-text">
+      <div class="title">Orchestrator</div>
+      <div class="sub" id="session-label">session · local</div>
+    </div>
+  </div>
+  <div class="status-chip">
+    <div class="status-dot pending" id="header-dot"></div>
+    <span id="header-status">در حال بررسی</span>
+  </div>
+</header>
+
+<div class="tabs">
+  <button class="tab active" data-tab="chat">
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg>
+    چت
+  </button>
+  <button class="tab" data-tab="agents">
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>
+    داشبورد
+  </button>
+</div>
+
+<div id="chat-view" class="view active">
+  <div id="log"></div>
+  <div id="composer">
+    <textarea id="input" rows="1" placeholder="هر کاری داری بگو..."></textarea>
+    <button id="send" onclick="send()">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><path d="M22 2 11 13"/><path d="M22 2 15 22l-4-9-9-4 20-7z"/></svg>
+    </button>
+  </div>
+</div>
+
+<div id="agents-view" class="view">
+  <div class="stat-row">
+    <div class="stat-card">
+      <div class="label">اتصال</div>
+      <div class="value" id="stat-connection">—</div>
+    </div>
+    <div class="stat-card">
+      <div class="label">ایجنت‌ها</div>
+      <div class="value" id="stat-agents-count">—</div>
+    </div>
+    <div class="stat-card">
+      <div class="label">مدل فعال</div>
+      <div class="value mono" style="font-size:11.5px;">gpt-oss-20b</div>
+    </div>
+  </div>
+
+  <div class="section-title">ساخت ایجنت جدید</div>
+  <div class="form-box">
+    <label>نام (انگلیسی، بدون فاصله)</label>
+    <input id="new-name" placeholder="مثلاً trader_agent" dir="ltr">
+    <label>توضیح یک‌خطی (کِی صدا زده بشه)</label>
+    <input id="new-desc" placeholder="مثلاً تحلیل تکنیکال طلا با SMC">
+    <label>دستورالعمل کامل (System Prompt)</label>
+    <textarea id="new-prompt" placeholder="تو یک تحلیل‌گر تکنیکال طلا هستی..."></textarea>
+    <div class="form-actions">
+      <button class="btn-primary" onclick="createAgent()">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+        ساخت ایجنت
+      </button>
+      <span id="create-status" class="status-text"></span>
+    </div>
+  </div>
+
+  <div class="section-title">
+    <span>ایجنت‌های فعال</span>
+    <button class="icon-btn" onclick="loadAgents()">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-2.6-6.4M21 3v6h-6"/></svg>
+      به‌روزرسانی
+    </button>
+  </div>
+  <div id="agents-list"></div>
+
+  <div class="section-title">تست مستقیم ایجنت</div>
+  <div class="form-box">
+    <label>انتخاب ایجنت</label>
+    <select id="test-agent-select"></select>
+    <label>پیام تست</label>
+    <textarea id="test-message" placeholder="مثلاً: خودت رو معرفی کن"></textarea>
+    <div class="form-actions">
+      <button class="btn-primary" onclick="runDirectTest()">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor" stroke="none"><path d="M6 4l14 8-14 8V4z"/></svg>
+        اجرای تست
+      </button>
+      <span id="test-status" class="status-text"></span>
+    </div>
+    <div id="test-result"></div>
+  </div>
+</div>
+
+<script>
+const API_BASE = '';
+let sessionId = localStorage.getItem('session_id') || null;
+const log = document.getElementById('log');
+const input = document.getElementById('input');
+
+const botIcon = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--teal)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="10" rx="2"/><circle cx="12" cy="5" r="2"/><path d="M12 7v4M8 16h.01M16 16h.01"/></svg>`;
+const userIcon = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--amber)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>`;
+
+/* ---------- Tabs ---------- */
+document.querySelectorAll('.tab').forEach(tab => {
+  tab.addEventListener('click', () => {
+    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+    document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
+    tab.classList.add('active');
+    document.getElementById(tab.dataset.tab + '-view').classList.add('active');
+    if(tab.dataset.tab === 'agents'){ loadAgents(); checkHealth(); }
+  });
+});
+
+/* ---------- Chat ---------- */
+function scrollBottom(){ log.scrollTop = log.scrollHeight; }
+
+function addRow(role, text, isError){
+  const row = document.createElement('div');
+  row.className = 'row ' + role;
+  const avatar = document.createElement('div');
+  avatar.className = 'avatar' + (role === 'user' ? ' user' : '');
+  avatar.innerHTML = role === 'user' ? userIcon : botIcon;
+  const col = document.createElement('div');
+  col.className = 'bubble-col';
+  const bubble = document.createElement('div');
+  bubble.className = 'bubble' + (isError ? ' error' : '');
+  bubble.textContent = text;
+  col.appendChild(bubble);
+  row.appendChild(avatar);
+  row.appendChild(col);
+  log.appendChild(row);
+  scrollBottom();
+}
+
+function addThinking(){
+  const row = document.createElement('div');
+  row.className = 'row assistant';
+  row.id = 'thinking-row';
+  const avatar = document.createElement('div');
+  avatar.className = 'avatar';
+  avatar.innerHTML = botIcon;
+  const col = document.createElement('div');
+  col.className = 'bubble-col';
+  const bubble = document.createElement('div');
+  bubble.className = 'bubble thinking';
+  bubble.innerHTML = '<span></span><span></span><span></span>';
+  col.appendChild(bubble);
+  row.appendChild(avatar);
+  row.appendChild(col);
+  log.appendChild(row);
+  scrollBottom();
+}
+function removeThinking(){
+  const el = document.getElementById('thinking-row');
+  if(el) el.remove();
+}
+
+async function send(){
+  const text = input.value.trim();
+  if(!text) return;
+  addRow('user', text);
+  input.value = '';
+  input.style.height = 'auto';
+  document.getElementById('send').disabled = true;
+  addThinking();
+
+  try{
+    const res = await fetch(API_BASE + '/api/chat', {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({session_id: sessionId, message: text})
+    });
+    const data = await res.json();
+    sessionId = data.session_id;
+    localStorage.setItem('session_id', sessionId);
+    document.getElementById('session-label').textContent = 'session · ' + sessionId.slice(0,8);
+    removeThinking();
+    addRow('assistant', data.reply, !!data.error);
+  }catch(e){
+    removeThinking();
+    addRow('assistant', 'خطای شبکه: ' + e.message, true);
   }
   document.getElementById('send').disabled = false;
 }
