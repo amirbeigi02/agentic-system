@@ -1,6 +1,5 @@
 import os
 import uuid
-import traceback
 from pathlib import Path
 
 from fastapi import FastAPI
@@ -48,6 +47,11 @@ class AgentUpdateRequest(BaseModel):
     system_prompt: str | None = None
 
 
+class TestAgentRequest(BaseModel):
+    agent_name: str
+    message: str
+
+
 @app.post("/api/chat", response_model=ChatResponse)
 def chat(req: ChatRequest):
     session_id = req.session_id or str(uuid.uuid4())
@@ -92,6 +96,15 @@ def delete_agent_endpoint(name: str):
     return {"ok": ok}
 
 
+@app.post("/api/test-agent")
+def test_agent_endpoint(req: TestAgentRequest):
+    try:
+        result = orchestrator.test_agent(req.agent_name, req.message)
+        return {"ok": True, "result": result}
+    except Exception as e:
+        return {"ok": False, "error": f"{type(e).__name__}: {e}"}
+
+
 @app.get("/api/history/{session_id}")
 def history(session_id: str):
     return db.get_recent_messages(session_id, limit=100)
@@ -104,13 +117,10 @@ def facts():
 
 @app.get("/api/health")
 def health():
-    """برای دیباگ سریع: چک می‌کند بک‌اند و کلید API درست تنظیم شده‌اند یا نه."""
     groq_key_set = bool(os.environ.get("GROQ_API_KEY"))
-    anthropic_key_set = bool(os.environ.get("ANTHROPIC_API_KEY"))
     return {
         "status": "ok",
         "groq_key_set": groq_key_set,
-        "anthropic_key_set": anthropic_key_set,
         "agents_count": len(db.list_agents()),
     }
 
