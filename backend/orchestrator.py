@@ -1,21 +1,49 @@
 """
 Orchestrator: تنها نقطه‌ی ورودی سیستم (نسخه‌ی Groq - رایگان).
-- مدل Orchestrator: قوی‌تر و مخصوص tool-calling دقیق (مسیریابی و ساخت ایجنت)
-- مدل ساب‌ایجنت‌ها: سبک و سریع (برای پاسخ‌گویی عمومی)
+- Fallback خودکار بین چند مدل در صورت خطا/rate-limit
+- تست خودکار هر ایجنت جدید قبل از تحویل به کاربر
+- حافظه مشترک (SQLite) بین Orchestrator و همهی ساب‌ایجنت‌ها
 """
 import os
 import json
-from groq import Groq
+import time
+from groq import Groq, RateLimitError, APIStatusError, APIConnectionError
 
 import db
 
 client = Groq(api_key=os.environ.get("GROQ_API_KEY"))
 
-# مدل Orchestrator: مسئول تشخیص دقیق درخواست و مسیریابی/ساخت ایجنت - نیاز به دقت بالا در tool-calling دارد
 ORCHESTRATOR_MODEL = "openai/gpt-oss-20b"
-
-# مدل پیش‌فرض ساب‌ایجنت‌ها: سبک، سریع، سقف رایگان بالا
 SUBAGENT_MODEL = "llama-3.1-8b-instant"
+
+# زنجیره‌ی fallback: اگر مدل اول خطا داد/rate-limit خورد، خودکار برو سراغ بعدی
+MODEL_FALLBACK_CHAIN = ["llama-3.1-8b-instant", "gemma2-9b-it", "llama-3.3-70b-versatile"]
+
+
+def _call_groq(model: str, messages: list, tools: list = None, max_tokens: int = 4000):
+    """
+    فراخوانی Groq با تلاش مجدد و fallback خودکار بین مدل‌ها.
+    اگر مدل اصلی خطا داد یا rate-limit خورد، خودکار مدل بعدی را امتحان می‌کند.
+    """
+    candidates = [model] + [m for m in MODEL_FALLBACK_CHAIN if m != model]
+    last_error = None
+
+    for attempt_model in candidates:
+        for retry in range(2):  # هر مدل حداکثر ۲ بار تلاش (برای خطاهای گذرا)
+            try:
+                kwargs = {"model": attempt_model, "max_tokens": max_tokens, "messages": messages}
+                if tools:
+                    kwargs["tools"] = tools
+                return client.chat.completions.create(**kwargs)
+            except RateLimitError as e:
+                last_error = e
+                break  # سراغ مدل بعدی برو، صبر کردن برای rate-limit فایده‌ای ندارد
+            except (APIStatusError, APIConnectionError) as e:
+                last_error = e
+                time.sleep(1)
+                continue
+
+    raise RuntimeError(f"همه‌ی مدل‌های fallback شکست خوردند. آخرین خطا: {last_error}")
 
 
 def _tools_schema():
@@ -39,15 +67,16 @@ def _tools_schema():
             "type": "function",
             "function": {
                 "name": "create_agent",
-                "description": "یک ایجنت تخصصی جدید می‌سازد و آن را برای همیشه به سیستم اضافه می‌کند.",
+                "description": "یک ایجنت تخصصی جدید می‌سازد، خودکار تستش می‌کند، و در صورت موفقیت برای همیشه به سیستم اضافه می‌کند.",
                 "parameters": {
                     "type": "object",
                     "properties": {
                         "name": {"type": "string", "description": "نام یکتای انگلیسی و کوتاه، مثل trader_agent"},
                         "description": {"type": "string", "description": "توضیح یک خطی که چه زمانی باید این ایجنت صدا زده شود"},
                         "system_prompt": {"type": "string", "description": "دستورالعمل کامل و حرفه‌ای برای این ایجنت به فارسی"},
+                        "test_task": {"type": "string", "description": "یک درخواست نمونهی ساده برای تست ایجنت بلافاصله بعد از ساخت"},
                     },
-                    "required": ["name", "description", "system_prompt"],
+                    "required": ["name", "description", "system_prompt", "test_task"],
                 },
             },
         },
@@ -83,7 +112,7 @@ def _tools_schema():
             "type": "function",
             "function": {
                 "name": "remember_fact",
-                "description": "یک واقعیت مهم و بلندمدت درباره‌ی کاربر یا پروژه‌هایش را در حافظه دائمی ذخیره می‌کند.",
+                "description": "یک واقعیت مهم و بلندمدت درباره‌ی کاربر یا پروژه‌هایش را در حافظه دائمی مشترک ذخیره می‌کند.",
                 "parameters": {
                     "type": "object",
                     "properties": {"fact": {"type": "string"}},
@@ -100,21 +129,44 @@ def _run_subagent(agent_name: str, task: str) -> str:
         return f"خطا: ایجنتی با نام '{agent_name}' پیدا نشد."
 
     guarded_prompt = agent["system_prompt"] + (
-        "\n\nمهم: تو داده‌ی زنده یا دسترسی به اینترنت نداری. اگر کاربر قیمت لحظه‌ای، نرخ ارز، "
+        "\n\nمهم: تو دادهی زنده یا دسترسی به اینترنت نداری. اگر کاربر قیمت لحظه‌ای، نرخ ارز، "
         "یا هر داده‌ی زمان‌حساس دیگری خواست که به آن دسترسی نداری، صادقانه بگو که این داده را "
-        "نداری و پیشنهاد بده کاربر یک منبع زنده (مثل TradingView یا سایت رسمی) را چک کند. "
-        "هرگز عدد ساختگی برای قیمت واقعی تولید نکن."
+        "نداری. هرگز عدد ساختگی برای قیمت واقعی تولید نکن."
     )
 
-    resp = client.chat.completions.create(
-        model=SUBAGENT_MODEL,
-        max_tokens=4000,
-        messages=[
-            {"role": "system", "content": guarded_prompt},
-            {"role": "user", "content": task},
-        ],
-    )
-    return resp.choices[0].message.content or ""
+    try:
+        resp = _call_groq(
+            model=SUBAGENT_MODEL,
+            messages=[
+                {"role": "system", "content": guarded_prompt},
+                {"role": "user", "content": task},
+            ],
+        )
+        return resp.choices[0].message.content or ""
+    except Exception as e:
+        return f"⚠️ این ایجنت در حال حاضر پاسخ نداد ({type(e).__name__}). دوباره امتحان کن."
+
+
+def _test_new_agent(name: str, system_prompt: str, test_task: str):
+    """
+    بلافاصله بعد از ساخت ایجنت، یک درخواست نمونه به آن می‌فرستد تا مطمئن شود
+    قبل از commit شدن، واقعاً کار می‌کند.
+    برمی‌گرداند: (موفق؟, پیام)
+    """
+    try:
+        resp = _call_groq(
+            model=SUBAGENT_MODEL,
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": test_task},
+            ],
+        )
+        content = resp.choices[0].message.content or ""
+        if not content.strip():
+            return False, "ایجنت جواب خالی برگرداند."
+        return True, content
+    except Exception as e:
+        return False, f"{type(e).__name__}: {e}"
 
 
 def _execute_tool(tool_name: str, tool_input: dict) -> str:
@@ -125,8 +177,24 @@ def _execute_tool(tool_name: str, tool_input: dict) -> str:
         existing = db.get_agent(tool_input["name"])
         if existing:
             return f"ایجنتی با نام '{tool_input['name']}' از قبل وجود دارد. از update_agent استفاده کن."
-        db.create_agent(tool_input["name"], tool_input["description"], tool_input["system_prompt"])
-        return f"ایجنت '{tool_input['name']}' با موفقیت ساخته و به سیستم اضافه شد."
+
+        name = tool_input["name"]
+        description = tool_input["description"]
+        system_prompt = tool_input["system_prompt"]
+        test_task = tool_input.get("test_task", "یک تست ساده انجام بده و خودت را معرفی کن.")
+
+        ok, test_result = _test_new_agent(name, system_prompt, test_task)
+        if not ok:
+            return (
+                f"ساخت ایجنت '{name}' متوقف شد چون تست اولیه شکست خورد: {test_result}\n"
+                f"می‌توانم دوباره با system_prompt اصلاح‌شده امتحان کنم."
+            )
+
+        db.create_agent(name, description, system_prompt)
+        return (
+            f"ایجنت '{name}' ساخته شد، تست شد و به سیستم اضافه شد.\n"
+            f"نمونه‌ی جواب تستش: {test_result[:300]}"
+        )
 
     if tool_name == "update_agent":
         ok = db.update_agent(
@@ -142,7 +210,7 @@ def _execute_tool(tool_name: str, tool_input: dict) -> str:
 
     if tool_name == "remember_fact":
         db.add_fact(tool_input["fact"])
-        return "در حافظه دائمی ذخیره شد."
+        return "در حافظه دائمی مشترک ذخیره شد."
 
     return "تول ناشناخته."
 
@@ -153,20 +221,20 @@ def _build_system_prompt():
     facts = db.get_all_facts(limit=30)
     facts_text = "\n".join(f"- {f['fact']}" for f in facts) or "(هنوز چیزی ذخیره نشده)"
 
-    return f"""تو Orchestrator یک سیستم چند-ایجنتی هستی. کاربر فقط با تو صحبت می‌کند و هیچ‌وقت مستقیم با ساب‌ایجنت‌ها حرف نمی‌زند.
+    return f"""تو Orchestrator یک سیستم چند-ایجنتی هستی. کاربر فقط با تو صحبت می‌کند و هیچ‌وقت مستقیم با ساب‌ایجنتها حرف نمی‌زند.
 
 قوانین سخت‌گیرانه:
 ۱. اگر کار به یکی از ایجنت‌های تخصصی زیر مربوط است، فقط و فقط با فراخوانی واقعی تول delegate_to_agent (نه نوشتن متن شبه‌کد) به او واگذار کن.
-۲. اگر کاربر صریحاً خواست ایجنت جدید ساخته شود، با تول create_agent بسازش. اگر ایجنت مناسبی برای درخواست کاربر پیدا نکردی، خودت پیشنهاد بده که یک ایجنت جدید بسازی و از کاربر تایید بگیر.
-۳. اگر چیزی مهم و ماندگار درباره کاربر/پروژه‌هایش فهمیدی، با remember_fact ذخیره‌اش کن.
-۴. هرگز متن خام مربوط به فراخوانی تول (مثل تگ‌های XML یا JSON نیمه‌کاره) را در پاسخ نهایی به کاربر ننویس. پاسخ نهایی همیشه باید متن فارسی روان و طبیعی باشد.
-۵. همیشه پاسخ نهایی را خودت به فارسی، خلاصه و مفید برای کاربر بنویس؛ خروجی خام ساب‌ایجنت را کورکورانه کپی نکن مگر لازم باشد.
-۶. تو خودت داده‌ی زنده (قیمت، نرخ ارز، اخبار لحظه‌ای) نداری. اگر ایجنتی چنین عددی برگرداند و مطمئن نیستی واقعی است، به کاربر شفاف بگو این عدد تخمینی/بدون منبع زنده است.
+۲. اگر کاربر صریحاً خواست ایجنت جدید ساخته شود، یا ایجنت مناسبی برای درخواستش پیدا نکردی، با تول create_agent بسازش (همراه با یک test_task ساده برای تست خودکار). اگر تست شکست خورد، به کاربر بگو و پیشنهاد بده با prompt بهتر دوباره تلاش کنی.
+۳. اگر چیزی مهم و ماندگار درباره کاربر/پروژه‌هایش فهمیدی، با remember_fact در حافظه‌ی مشترک ذخیره‌اش کن.
+۴. هرگز متن خام مربوط به فراخوانی تول (تگ XML یا JSON نیمه‌کاره) را در پاسخ نهایی ننویس؛ پاسخ نهایی همیشه فارسی روان است.
+۵. همیشه پاسخ نهایی را خودت خلاصه و مفید بنویس؛ خروجی خام ساب‌ایجنت را کورکورانه کپی نکن مگر لازم باشد.
+۶. تو خودت داده‌ی زنده (قیمت، نرخ ارز، اخبار لحظه‌ای) نداری. اگر ایجنتی چنین عددی برگرداند و مطمئن نیستی واقعی است، به کاربر شفاف بگو تخمینی/بدون منبع زنده است.
 
 ایجنت‌های موجود در سیستم:
 {agents_list}
 
-حافظه بلندمدت (واقعیت‌های شناخته‌شده درباره کاربر):
+حافظه بلندمدت مشترک (واقعیت‌های شناخته‌شده درباره کاربر):
 {facts_text}
 """
 
@@ -185,11 +253,10 @@ def run_turn(session_id: str, user_message: str) -> str:
     tools = _tools_schema()
 
     for _ in range(6):
-        resp = client.chat.completions.create(
+        resp = _call_groq(
             model=ORCHESTRATOR_MODEL,
-            max_tokens=4000,
-            tools=tools,
             messages=[{"role": "system", "content": system_prompt}] + messages,
+            tools=tools,
         )
         msg = resp.choices[0].message
 
