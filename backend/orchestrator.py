@@ -1,49 +1,57 @@
 """
-Orchestrator: تنها نقطه‌ی ورودی سیستم (نسخه‌ی Groq - رایگان).
-- Fallback خودکار بین چند مدل در صورت خطا/rate-limit
+Orchestrator: تنها نقطه‌ی ورودی سیستم.
+- مدل اصلی: GLM-5.2 از طریق NVIDIA NIM (رایگان-trial، قوی در reasoning/agentic/tool-calling)
+- Fallback خودکار: اگر NVIDIA خطا داد/rate-limit خورد، خودکار می‌رود سراغ مدل‌های Groq
 - تست خودکار هر ایجنت جدید قبل از تحویل به کاربر
-- حافظه مشترک (SQLite) بین Orchestrator و همهی ساب‌ایجنت‌ها
+- حافظه مشترک (SQLite) بین Orchestrator و همه‌ی ساب‌ایجنت‌ها
 """
 import os
 import json
 import time
+from openai import OpenAI as NvidiaClient
 from groq import Groq, RateLimitError, APIStatusError, APIConnectionError
 
 import db
 
-client = Groq(api_key=os.environ.get("GROQ_API_KEY"))
+nvidia_client = NvidiaClient(
+    api_key=os.environ.get("NVIDIA_API_KEY"),
+    base_url="https://integrate.api.nvidia.com/v1",
+)
+groq_client = Groq(api_key=os.environ.get("GROQ_API_KEY"))
 
-ORCHESTRATOR_MODEL = "openai/gpt-oss-20b"
+NVIDIA_MODEL = "z-ai/glm-5.2"
+GROQ_FALLBACK_CHAIN = ["openai/gpt-oss-20b", "llama-3.1-8b-instant", "llama-3.3-70b-versatile"]
 SUBAGENT_MODEL = "llama-3.1-8b-instant"
 
-# زنجیره‌ی fallback: اگر مدل اول خطا داد/rate-limit خورد، خودکار برو سراغ بعدی
-MODEL_FALLBACK_CHAIN = ["llama-3.1-8b-instant", "gemma2-9b-it", "llama-3.3-70b-versatile"]
 
-
-def _call_groq(model: str, messages: list, tools: list = None, max_tokens: int = 4000):
-    """
-    فراخوانی Groq با تلاش مجدد و fallback خودکار بین مدل‌ها.
-    اگر مدل اصلی خطا داد یا rate-limit خورد، خودکار مدل بعدی را امتحان می‌کند.
-    """
-    candidates = [model] + [m for m in MODEL_FALLBACK_CHAIN if m != model]
+def _call_llm(messages: list, tools: list = None, max_tokens: int = 4000):
     last_error = None
 
-    for attempt_model in candidates:
-        for retry in range(2):  # هر مدل حداکثر ۲ بار تلاش (برای خطاهای گذرا)
+    if os.environ.get("NVIDIA_API_KEY"):
+        try:
+            kwargs = {"model": NVIDIA_MODEL, "max_tokens": max_tokens, "messages": messages}
+            if tools:
+                kwargs["tools"] = tools
+            return nvidia_client.chat.completions.create(**kwargs)
+        except Exception as e:
+            last_error = e
+
+    for model in GROQ_FALLBACK_CHAIN:
+        for retry in range(2):
             try:
-                kwargs = {"model": attempt_model, "max_tokens": max_tokens, "messages": messages}
+                kwargs = {"model": model, "max_tokens": max_tokens, "messages": messages}
                 if tools:
                     kwargs["tools"] = tools
-                return client.chat.completions.create(**kwargs)
+                return groq_client.chat.completions.create(**kwargs)
             except RateLimitError as e:
                 last_error = e
-                break  # سراغ مدل بعدی برو، صبر کردن برای rate-limit فایده‌ای ندارد
+                break
             except (APIStatusError, APIConnectionError) as e:
                 last_error = e
                 time.sleep(1)
                 continue
 
-    raise RuntimeError(f"همه‌ی مدل‌های fallback شکست خوردند. آخرین خطا: {last_error}")
+    raise RuntimeError(f"همه‌ی مدل‌ها (NVIDIA + Groq fallback) شکست خوردند. آخرین خطا: {last_error}")
 
 
 def _tools_schema():
@@ -74,7 +82,7 @@ def _tools_schema():
                         "name": {"type": "string", "description": "نام یکتای انگلیسی و کوتاه، مثل trader_agent"},
                         "description": {"type": "string", "description": "توضیح یک خطی که چه زمانی باید این ایجنت صدا زده شود"},
                         "system_prompt": {"type": "string", "description": "دستورالعمل کامل و حرفه‌ای برای این ایجنت به فارسی"},
-                        "test_task": {"type": "string", "description": "یک درخواست نمونهی ساده برای تست ایجنت بلافاصله بعد از ساخت"},
+                        "test_task": {"type": "string", "description": "یک درخواست نمونه‌ی ساده برای تست ایجنت بلافاصله بعد از ساخت"},
                     },
                     "required": ["name", "description", "system_prompt", "test_task"],
                 },
@@ -129,14 +137,15 @@ def _run_subagent(agent_name: str, task: str) -> str:
         return f"خطا: ایجنتی با نام '{agent_name}' پیدا نشد."
 
     guarded_prompt = agent["system_prompt"] + (
-        "\n\nمهم: تو دادهی زنده یا دسترسی به اینترنت نداری. اگر کاربر قیمت لحظه‌ای، نرخ ارز، "
+        "\n\nمهم: تو داده‌ی زنده یا دسترسی به اینترنت نداری. اگر کاربر قیمت لحظه‌ای، نرخ ارز، "
         "یا هر داده‌ی زمان‌حساس دیگری خواست که به آن دسترسی نداری، صادقانه بگو که این داده را "
         "نداری. هرگز عدد ساختگی برای قیمت واقعی تولید نکن."
     )
 
     try:
-        resp = _call_groq(
+        resp = groq_client.chat.completions.create(
             model=SUBAGENT_MODEL,
+            max_tokens=4000,
             messages=[
                 {"role": "system", "content": guarded_prompt},
                 {"role": "user", "content": task},
@@ -148,14 +157,10 @@ def _run_subagent(agent_name: str, task: str) -> str:
 
 
 def _test_new_agent(name: str, system_prompt: str, test_task: str):
-    """
-    بلافاصله بعد از ساخت ایجنت، یک درخواست نمونه به آن می‌فرستد تا مطمئن شود
-    قبل از commit شدن، واقعاً کار می‌کند.
-    برمی‌گرداند: (موفق؟, پیام)
-    """
     try:
-        resp = _call_groq(
+        resp = groq_client.chat.completions.create(
             model=SUBAGENT_MODEL,
+            max_tokens=4000,
             messages=[
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": test_task},
@@ -221,7 +226,7 @@ def _build_system_prompt():
     facts = db.get_all_facts(limit=30)
     facts_text = "\n".join(f"- {f['fact']}" for f in facts) or "(هنوز چیزی ذخیره نشده)"
 
-    return f"""تو Orchestrator یک سیستم چند-ایجنتی هستی. کاربر فقط با تو صحبت می‌کند و هیچ‌وقت مستقیم با ساب‌ایجنتها حرف نمی‌زند.
+    return f"""تو Orchestrator یک سیستم چند-ایجنتی هستی. کاربر فقط با تو صحبت می‌کند و هیچ‌وقت مستقیم با ساب‌ایجنت‌ها حرف نمی‌زند.
 
 قوانین سخت‌گیرانه:
 ۱. اگر کار به یکی از ایجنت‌های تخصصی زیر مربوط است، فقط و فقط با فراخوانی واقعی تول delegate_to_agent (نه نوشتن متن شبه‌کد) به او واگذار کن.
@@ -253,8 +258,7 @@ def run_turn(session_id: str, user_message: str) -> str:
     tools = _tools_schema()
 
     for _ in range(6):
-        resp = _call_groq(
-            model=ORCHESTRATOR_MODEL,
+        resp = _call_llm(
             messages=[{"role": "system", "content": system_prompt}] + messages,
             tools=tools,
         )
@@ -285,3 +289,8 @@ def run_turn(session_id: str, user_message: str) -> str:
     fallback = "متاسفانه پردازش این درخواست پیچیده‌تر از حد مجاز شد. لطفاً ساده‌ترش کن."
     db.add_message(session_id, "assistant", fallback)
     return fallback
+
+
+def test_agent(agent_name: str, message: str) -> str:
+    """تست مستقیم یک ایجنت، بدون عبور از Orchestrator - برای داشبورد."""
+    return _run_subagent(agent_name, message)
