@@ -14,15 +14,9 @@
 <link href="https://fonts.googleapis.com/css2?family=Vazirmatn:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
   :root{
-    --bg: #0F1417;
-    --panel: #171E22;
-    --panel-2: #1D262B;
-    --border: #263136;
-    --text: #E8E6E1;
-    --text-dim: #8A9599;
-    --amber: #E8A33D;
-    --teal: #4FB0A5;
-    --user-bubble: #223038;
+    --bg: #0F1417; --panel: #171E22; --panel-2: #1D262B; --border: #263136;
+    --text: #E8E6E1; --text-dim: #8A9599; --amber: #E8A33D; --teal: #4FB0A5;
+    --user-bubble: #223038; --danger: #D9645E;
   }
   *{box-sizing:border-box; -webkit-tap-highlight-color:transparent;}
   html,body{height:100%;}
@@ -36,42 +30,39 @@
 
   header{
     display:flex; align-items:center; justify-content:space-between;
-    padding:14px 16px calc(10px + env(safe-area-inset-top)) 16px;
-    padding-top:calc(14px + env(safe-area-inset-top));
-    border-bottom:1px solid var(--border);
-    background:var(--panel);
+    padding:calc(14px + env(safe-area-inset-top)) 16px 10px 16px;
+    border-bottom:1px solid var(--border); background:var(--panel);
   }
   .brand{ display:flex; align-items:center; gap:9px; }
   .brand .dot{ width:8px; height:8px; border-radius:50%; background:var(--amber); box-shadow:0 0 8px var(--amber); }
   .brand-text{ display:flex; flex-direction:column; line-height:1.15; }
   .brand-text .title{ font-weight:700; font-size:15px; }
-  .brand-text .sub{ font-size:11px; color:var(--text-dim); font-family:'JetBrains Mono',monospace; letter-spacing:.3px; }
-  .agents-btn{
-    background:var(--panel-2); border:1px solid var(--border); color:var(--text-dim);
-    font-family:'JetBrains Mono',monospace; font-size:11px; padding:7px 10px; border-radius:8px;
-  }
+  .brand-text .sub{ font-size:11px; color:var(--text-dim); font-family:'JetBrains Mono',monospace; }
 
-  #log{
-    flex:1; overflow-y:auto; padding:16px; display:flex; flex-direction:column; gap:14px;
-    -webkit-overflow-scrolling:touch;
+  /* Tabs */
+  .tabs{ display:flex; border-bottom:1px solid var(--border); background:var(--panel); }
+  .tab{
+    flex:1; text-align:center; padding:11px 0; font-size:13.5px; color:var(--text-dim);
+    border:none; background:none; font-family:'Vazirmatn',sans-serif; position:relative;
   }
+  .tab.active{ color:var(--amber); font-weight:600; }
+  .tab.active::after{ content:''; position:absolute; bottom:-1px; left:30%; right:30%; height:2px; background:var(--amber); border-radius:2px; }
+
+  .view{ flex:1; overflow-y:auto; display:none; -webkit-overflow-scrolling:touch; }
+  .view.active{ display:flex; flex-direction:column; }
+
+  /* Chat view */
+  #log{ flex:1; overflow-y:auto; padding:16px; display:flex; flex-direction:column; gap:14px; }
   .row{ display:flex; flex-direction:column; max-width:86%; }
   .row.user{ align-self:flex-end; align-items:flex-end; }
   .row.assistant{ align-self:flex-start; align-items:flex-start; }
-
-  .route-tag{
-    font-family:'JetBrains Mono',monospace; font-size:10px; color:var(--teal);
-    margin-bottom:5px; opacity:.85; letter-spacing:.2px;
-  }
-  .route-tag::before{ content:"→ "; color:var(--text-dim); }
-
   .bubble{
     padding:11px 14px; border-radius:14px; font-size:14.5px; line-height:1.65;
     white-space:pre-wrap; word-break:break-word;
   }
   .row.user .bubble{ background:var(--user-bubble); border-bottom-left-radius:4px; }
   .row.assistant .bubble{ background:var(--panel-2); border:1px solid var(--border); border-bottom-right-radius:4px; }
-
+  .bubble.error{ border-color:var(--danger); color:#FFD3D0; }
   .thinking{ display:flex; gap:5px; padding:12px 14px; }
   .thinking span{ width:6px; height:6px; border-radius:50%; background:var(--amber); animation:pulse 1.1s infinite ease-in-out; }
   .thinking span:nth-child(2){ animation-delay:.15s; }
@@ -79,15 +70,13 @@
   @keyframes pulse{ 0%,80%,100%{opacity:.25; transform:scale(.8);} 40%{opacity:1; transform:scale(1);} }
 
   #composer{
-    display:flex; align-items:flex-end; gap:8px;
-    padding:10px 12px calc(12px + env(safe-area-inset-bottom)) 12px;
+    display:flex; align-items:flex-end; gap:8px; padding:10px 12px calc(12px + env(safe-area-inset-bottom)) 12px;
     border-top:1px solid var(--border); background:var(--panel);
   }
   #input{
     flex:1; resize:none; max-height:120px; min-height:42px;
     background:var(--panel-2); border:1px solid var(--border); color:var(--text);
-    border-radius:12px; padding:11px 14px; font-family:'Vazirmatn',sans-serif; font-size:15px;
-    outline:none;
+    border-radius:12px; padding:11px 14px; font-family:'Vazirmatn',sans-serif; font-size:15px; outline:none;
   }
   #input:focus{ border-color:var(--amber); }
   #send{
@@ -96,25 +85,51 @@
   }
   #send:disabled{ opacity:.4; }
 
-  #panel-overlay{
-    position:fixed; inset:0; background:rgba(0,0,0,.5); display:none; z-index:10;
+  /* Agents dashboard view */
+  #agents-view{ padding:16px; gap:12px; overflow-y:auto; }
+  .section-title{ font-size:14px; font-weight:600; margin:6px 0 2px 0; display:flex; justify-content:space-between; align-items:center; }
+  .btn{
+    border:none; border-radius:10px; padding:10px 14px; font-family:'Vazirmatn',sans-serif;
+    font-size:13.5px; font-weight:600;
   }
-  #panel{
-    position:fixed; bottom:0; left:0; right:0; background:var(--panel);
-    border-top:1px solid var(--border); border-radius:18px 18px 0 0;
-    padding:18px 16px calc(20px + env(safe-area-inset-bottom)) 16px;
-    max-height:70vh; overflow-y:auto; z-index:11;
-    transform:translateY(100%); transition:transform .25s ease;
+  .btn-primary{ background:var(--amber); color:#1a1206; }
+  .btn-ghost{ background:var(--panel-2); color:var(--text); border:1px solid var(--border); }
+  .btn-danger{ background:rgba(217,100,94,.15); color:var(--danger); border:1px solid rgba(217,100,94,.4); }
+  .btn-sm{ padding:6px 10px; font-size:12px; }
+
+  .agent-card{
+    background:var(--panel-2); border:1px solid var(--border); border-radius:12px;
+    padding:12px 14px; margin-bottom:10px;
   }
-  #panel.open{ transform:translateY(0); }
-  #panel-overlay.open{ display:block; }
-  #panel h3{ margin:0 0 12px 0; font-size:15px; }
-  .agent-item{
-    padding:11px 12px; background:var(--panel-2); border:1px solid var(--border);
-    border-radius:10px; margin-bottom:8px;
+  .agent-card .name{ font-family:'JetBrains Mono',monospace; font-size:13px; color:var(--teal); }
+  .agent-card .badge{
+    font-size:10px; color:var(--text-dim); border:1px solid var(--border); border-radius:6px;
+    padding:1px 6px; margin-right:6px;
   }
-  .agent-item .name{ font-family:'JetBrains Mono',monospace; font-size:12px; color:var(--teal); }
-  .agent-item .desc{ font-size:13px; color:var(--text-dim); margin-top:3px; }
+  .agent-card .desc{ font-size:13px; color:var(--text-dim); margin:6px 0 10px 0; line-height:1.5; }
+  .agent-card .actions{ display:flex; gap:8px; }
+
+  .form-box{
+    background:var(--panel-2); border:1px solid var(--border); border-radius:12px; padding:14px; margin-bottom:14px;
+  }
+  .form-box label{ font-size:12px; color:var(--text-dim); display:block; margin:10px 0 5px 0; }
+  .form-box label:first-child{ margin-top:0; }
+  .form-box input, .form-box textarea{
+    width:100%; background:var(--bg); border:1px solid var(--border); color:var(--text);
+    border-radius:8px; padding:9px 11px; font-family:'Vazirmatn',sans-serif; font-size:14px; outline:none;
+  }
+  .form-box input:focus, .form-box textarea:focus{ border-color:var(--amber); }
+  .form-box textarea{ resize:vertical; min-height:80px; line-height:1.5; }
+  .form-actions{ display:flex; gap:8px; margin-top:12px; }
+
+  .health-pill{
+    display:inline-flex; align-items:center; gap:6px; font-size:11px; font-family:'JetBrains Mono',monospace;
+    background:var(--panel-2); border:1px solid var(--border); border-radius:8px; padding:5px 9px; margin-bottom:12px;
+  }
+  .health-dot{ width:7px; height:7px; border-radius:50%; }
+  .health-dot.ok{ background:#4FB06B; }
+  .health-dot.bad{ background:var(--danger); }
+  .hidden{ display:none !important; }
 </style>
 </head>
 <body>
@@ -127,19 +142,47 @@
       <div class="sub" id="session-label">session • local</div>
     </div>
   </div>
-  <button class="agents-btn mono" onclick="openPanel()">AGENTS ▲</button>
 </header>
 
-<div id="log"></div>
-
-<div id="composer">
-  <textarea id="input" rows="1" placeholder="هر کاری داری بگو..."></textarea>
-  <button id="send" onclick="send()">➤</button>
+<div class="tabs">
+  <button class="tab active" data-tab="chat">چت</button>
+  <button class="tab" data-tab="agents">ایجنت‌ها</button>
 </div>
 
-<div id="panel-overlay" onclick="closePanel()"></div>
-<div id="panel">
-  <h3>ایجنت‌های فعال سیستم</h3>
+<div id="chat-view" class="view active">
+  <div id="log"></div>
+  <div id="composer">
+    <textarea id="input" rows="1" placeholder="هر کاری داری بگو..."></textarea>
+    <button id="send" onclick="send()">➤</button>
+  </div>
+</div>
+
+<div id="agents-view" class="view">
+  <div id="health-pill" class="health-pill">
+    <div class="health-dot" id="health-dot"></div>
+    <span id="health-text">در حال بررسی اتصال...</span>
+  </div>
+
+  <div class="section-title">
+    <span>ساخت ایجنت جدید</span>
+  </div>
+  <div class="form-box">
+    <label>نام (انگلیسی، بدون فاصله)</label>
+    <input id="new-name" placeholder="مثلاً trader_agent" dir="ltr">
+    <label>توضیح یک‌خطی (کِی صدا زده بشه)</label>
+    <input id="new-desc" placeholder="مثلاً تحلیل تکنیکال طلا با SMC">
+    <label>دستورالعمل کامل (System Prompt)</label>
+    <textarea id="new-prompt" placeholder="تو یک تحلیل‌گر تکنیکال طلا هستی..."></textarea>
+    <div class="form-actions">
+      <button class="btn btn-primary" onclick="createAgent()">ساخت ایجنت</button>
+      <span id="create-status" style="font-size:12px; color:var(--text-dim); align-self:center;"></span>
+    </div>
+  </div>
+
+  <div class="section-title">
+    <span>ایجنت‌های فعال</span>
+    <button class="btn btn-ghost btn-sm" onclick="loadAgents()">↻ به‌روزرسانی</button>
+  </div>
   <div id="agents-list"></div>
 </div>
 
@@ -149,24 +192,29 @@ let sessionId = localStorage.getItem('session_id') || null;
 const log = document.getElementById('log');
 const input = document.getElementById('input');
 
+/* ---------- Tabs ---------- */
+document.querySelectorAll('.tab').forEach(tab => {
+  tab.addEventListener('click', () => {
+    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+    document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
+    tab.classList.add('active');
+    document.getElementById(tab.dataset.tab + '-view').classList.add('active');
+    if(tab.dataset.tab === 'agents'){ loadAgents(); checkHealth(); }
+  });
+});
+
+/* ---------- Chat ---------- */
 function scrollBottom(){ log.scrollTop = log.scrollHeight; }
 
-function addRow(role, text, routeTag){
+function addRow(role, text, isError){
   const row = document.createElement('div');
   row.className = 'row ' + role;
-  if(routeTag){
-    const tag = document.createElement('div');
-    tag.className = 'route-tag mono';
-    tag.textContent = routeTag;
-    row.appendChild(tag);
-  }
   const bubble = document.createElement('div');
-  bubble.className = 'bubble';
+  bubble.className = 'bubble' + (isError ? ' error' : '');
   bubble.textContent = text;
   row.appendChild(bubble);
   log.appendChild(row);
   scrollBottom();
-  return row;
 }
 
 function addThinking(){
@@ -205,10 +253,10 @@ async function send(){
     localStorage.setItem('session_id', sessionId);
     document.getElementById('session-label').textContent = 'session • ' + sessionId.slice(0,8);
     removeThinking();
-    addRow('assistant', data.reply);
+    addRow('assistant', data.reply, !!data.error);
   }catch(e){
     removeThinking();
-    addRow('assistant', 'خطا در اتصال به سرور. مطمئن شو بکاند روشن است.');
+    addRow('assistant', 'خطای شبکه: ' + e.message, true);
   }
   document.getElementById('send').disabled = false;
 }
@@ -221,32 +269,110 @@ input.addEventListener('input', ()=>{
   input.style.height = Math.min(input.scrollHeight, 120) + 'px';
 });
 
-async function openPanel(){
-  document.getElementById('panel').classList.add('open');
-  document.getElementById('panel-overlay').classList.add('open');
+if(sessionId){ document.getElementById('session-label').textContent = 'session • ' + sessionId.slice(0,8); }
+addRow('assistant', 'سلام! بگو چه کاری می‌خوای انجام بدم، یا برو تب «ایجنت‌ها» تا مستقیم ایجنت بسازی.');
+
+if('serviceWorker' in navigator){ navigator.serviceWorker.register('/sw.js').catch(()=>{}); }
+
+/* ---------- Health check ---------- */
+async function checkHealth(){
+  const dot = document.getElementById('health-dot');
+  const txt = document.getElementById('health-text');
+  try{
+    const res = await fetch(API_BASE + '/api/health');
+    const data = await res.json();
+    if(data.groq_key_set){
+      dot.className = 'health-dot ok';
+      txt.textContent = `متصل • ${data.agents_count} ایجنت فعال`;
+    }else{
+      dot.className = 'health-dot bad';
+      txt.textContent = 'GROQ_API_KEY تنظیم نشده در Render';
+    }
+  }catch(e){
+    dot.className = 'health-dot bad';
+    txt.textContent = 'اتصال به سرور برقرار نشد';
+  }
+}
+
+/* ---------- Agents dashboard ---------- */
+async function loadAgents(){
+  const list = document.getElementById('agents-list');
+  list.innerHTML = '<div style="color:var(--text-dim); font-size:13px;">در حال بارگذاری...</div>';
   try{
     const res = await fetch(API_BASE + '/api/agents');
     const agents = await res.json();
-    const list = document.getElementById('agents-list');
     list.innerHTML = '';
     agents.forEach(a=>{
-      const item = document.createElement('div');
-      item.className = 'agent-item';
-      item.innerHTML = `<div class="name mono">${a.name}</div><div class="desc">${a.description}</div>`;
-      list.appendChild(item);
+      const card = document.createElement('div');
+      card.className = 'agent-card';
+      card.innerHTML = `
+        <div class="name mono">${a.name} ${a.is_builtin ? '<span class="badge">پایه</span>' : ''}</div>
+        <div class="desc">${a.description}</div>
+        <div class="actions">
+          <button class="btn btn-ghost btn-sm" onclick='viewPrompt(${JSON.stringify(a.name)})'>مشاهده Prompt</button>
+          ${!a.is_builtin ? `<button class="btn btn-danger btn-sm" onclick='deleteAgent(${JSON.stringify(a.name)})'>حذف</button>` : ''}
+        </div>
+      `;
+      list.appendChild(card);
     });
-  }catch(e){}
-}
-function closePanel(){
-  document.getElementById('panel').classList.remove('open');
-  document.getElementById('panel-overlay').classList.remove('open');
+  }catch(e){
+    list.innerHTML = '<div style="color:var(--danger); font-size:13px;">خطا در دریافت لیست ایجنت‌ها</div>';
+  }
 }
 
-if(sessionId){ document.getElementById('session-label').textContent = 'session • ' + sessionId.slice(0,8); }
-addRow('assistant', 'سلام! بگو چه کاری می‌خوای انجام بدم، یا بگو «یه ایجنت بساز برای...» تا به سیستم اضافه‌اش کنم.');
+function viewPrompt(name){
+  fetch(API_BASE + '/api/agents').then(r=>r.json()).then(agents=>{
+    const a = agents.find(x=>x.name===name);
+    if(a) alert(a.system_prompt);
+  });
+}
 
-if('serviceWorker' in navigator){
-  navigator.serviceWorker.register('/sw.js').catch(()=>{});
+async function deleteAgent(name){
+  if(!confirm(`ایجنت "${name}" حذف بشه؟`)) return;
+  try{
+    const res = await fetch(API_BASE + '/api/agents/' + encodeURIComponent(name), { method:'DELETE' });
+    const data = await res.json();
+    if(data.ok) loadAgents();
+    else alert('حذف نشد: ' + (data.error || 'نامشخص'));
+  }catch(e){ alert('خطا: ' + e.message); }
+}
+
+async function createAgent(){
+  const name = document.getElementById('new-name').value.trim();
+  const description = document.getElementById('new-desc').value.trim();
+  const system_prompt = document.getElementById('new-prompt').value.trim();
+  const status = document.getElementById('create-status');
+
+  if(!name || !description || !system_prompt){
+    status.textContent = 'همه فیلدها لازمند';
+    status.style.color = 'var(--danger)';
+    return;
+  }
+  status.textContent = 'در حال ساخت...';
+  status.style.color = 'var(--text-dim)';
+
+  try{
+    const res = await fetch(API_BASE + '/api/agents', {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({name, description, system_prompt})
+    });
+    const data = await res.json();
+    if(data.ok){
+      status.textContent = '✓ ساخته شد';
+      status.style.color = '#4FB06B';
+      document.getElementById('new-name').value = '';
+      document.getElementById('new-desc').value = '';
+      document.getElementById('new-prompt').value = '';
+      loadAgents();
+    }else{
+      status.textContent = 'خطا: ' + (data.error || 'نامشخص');
+      status.style.color = 'var(--danger)';
+    }
+  }catch(e){
+    status.textContent = 'خطای شبکه: ' + e.message;
+    status.style.color = 'var(--danger)';
+  }
 }
 </script>
 </body>
