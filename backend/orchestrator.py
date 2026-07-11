@@ -1,5 +1,7 @@
 """
 Orchestrator: تنها نقطه‌ی ورودی سیستم (نسخه‌ی Groq - رایگان).
+- مدل Orchestrator: قوی‌تر و مخصوص tool-calling دقیق (مسیریابی و ساخت ایجنت)
+- مدل ساب‌ایجنت‌ها: سبک و سریع (برای پاسخ‌گویی عمومی)
 """
 import os
 import json
@@ -8,8 +10,12 @@ from groq import Groq
 import db
 
 client = Groq(api_key=os.environ.get("GROQ_API_KEY"))
-MODEL = MODEL = "llama-3.1-8b-instant"
 
+# مدل Orchestrator: مسئول تشخیص دقیق درخواست و مسیریابی/ساخت ایجنت - نیاز به دقت بالا در tool-calling دارد
+ORCHESTRATOR_MODEL = "openai/gpt-oss-20b"
+
+# مدل پیش‌فرض ساب‌ایجنت‌ها: سبک، سریع، سقف رایگان بالا
+SUBAGENT_MODEL = "llama-3.1-8b-instant"
 
 
 def _tools_schema():
@@ -92,11 +98,19 @@ def _run_subagent(agent_name: str, task: str) -> str:
     agent = db.get_agent(agent_name)
     if not agent:
         return f"خطا: ایجنتی با نام '{agent_name}' پیدا نشد."
+
+    guarded_prompt = agent["system_prompt"] + (
+        "\n\nمهم: تو داده‌ی زنده یا دسترسی به اینترنت نداری. اگر کاربر قیمت لحظه‌ای، نرخ ارز، "
+        "یا هر داده‌ی زمان‌حساس دیگری خواست که به آن دسترسی نداری، صادقانه بگو که این داده را "
+        "نداری و پیشنهاد بده کاربر یک منبع زنده (مثل TradingView یا سایت رسمی) را چک کند. "
+        "هرگز عدد ساختگی برای قیمت واقعی تولید نکن."
+    )
+
     resp = client.chat.completions.create(
-        model=MODEL,
+        model=SUBAGENT_MODEL,
         max_tokens=4000,
         messages=[
-            {"role": "system", "content": agent["system_prompt"]},
+            {"role": "system", "content": guarded_prompt},
             {"role": "user", "content": task},
         ],
     )
@@ -139,12 +153,15 @@ def _build_system_prompt():
     facts = db.get_all_facts(limit=30)
     facts_text = "\n".join(f"- {f['fact']}" for f in facts) or "(هنوز چیزی ذخیره نشده)"
 
-    return f"""تو Orchestrator یک سیستم چند-ایجنتی هستی. کاربر فقط با تو صحبت می‌کند.
-وظیفه‌ی تو:
-۱. اگر کار به یکی از ایجنت‌های تخصصی زیر مربوط است، با تول delegate_to_agent به او واگذار کن.
-۲. اگر کاربر صریحاً خواست ایجنت جدید ساخته شود، با create_agent بسازش (یک system_prompt حرفه‌ای و کامل برایش بنویس).
+    return f"""تو Orchestrator یک سیستم چند-ایجنتی هستی. کاربر فقط با تو صحبت می‌کند و هیچ‌وقت مستقیم با ساب‌ایجنت‌ها حرف نمی‌زند.
+
+قوانین سخت‌گیرانه:
+۱. اگر کار به یکی از ایجنت‌های تخصصی زیر مربوط است، فقط و فقط با فراخوانی واقعی تول delegate_to_agent (نه نوشتن متن شبه‌کد) به او واگذار کن.
+۲. اگر کاربر صریحاً خواست ایجنت جدید ساخته شود، با تول create_agent بسازش. اگر ایجنت مناسبی برای درخواست کاربر پیدا نکردی، خودت پیشنهاد بده که یک ایجنت جدید بسازی و از کاربر تایید بگیر.
 ۳. اگر چیزی مهم و ماندگار درباره کاربر/پروژه‌هایش فهمیدی، با remember_fact ذخیره‌اش کن.
-۴. همیشه پاسخ نهایی را خودت به فارسی، خلاصه و مفید برای کاربر بنویس.
+۴. هرگز متن خام مربوط به فراخوانی تول (مثل تگ‌های XML یا JSON نیمه‌کاره) را در پاسخ نهایی به کاربر ننویس. پاسخ نهایی همیشه باید متن فارسی روان و طبیعی باشد.
+۵. همیشه پاسخ نهایی را خودت به فارسی، خلاصه و مفید برای کاربر بنویس؛ خروجی خام ساب‌ایجنت را کورکورانه کپی نکن مگر لازم باشد.
+۶. تو خودت داده‌ی زنده (قیمت، نرخ ارز، اخبار لحظه‌ای) نداری. اگر ایجنتی چنین عددی برگرداند و مطمئن نیستی واقعی است، به کاربر شفاف بگو این عدد تخمینی/بدون منبع زنده است.
 
 ایجنت‌های موجود در سیستم:
 {agents_list}
@@ -169,7 +186,7 @@ def run_turn(session_id: str, user_message: str) -> str:
 
     for _ in range(6):
         resp = client.chat.completions.create(
-            model=MODEL,
+            model=ORCHESTRATOR_MODEL,
             max_tokens=4000,
             tools=tools,
             messages=[{"role": "system", "content": system_prompt}] + messages,
