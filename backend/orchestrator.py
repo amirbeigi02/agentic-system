@@ -21,10 +21,14 @@ groq_client = Groq(api_key=os.environ.get("GROQ_API_KEY"))
 
 NVIDIA_MODEL = "z-ai/glm-5.2"
 GROQ_FALLBACK_CHAIN = ["openai/gpt-oss-20b", "llama-3.1-8b-instant", "llama-3.3-70b-versatile"]
-SUBAGENT_MODEL = "llama-3.1-8b-instant"
+SUBAGENT_MODEL = "llama-3.1-8b-instant"  # ساب‌ایجنت‌های عادی رو Groq سبک می‌مانند (سریع‌تر و ارزان‌تر)
 
 
 def _call_llm(messages: list, tools: list = None, max_tokens: int = 4000):
+    """
+    اول GLM-5.2 روی NVIDIA را امتحان می‌کند. اگر خطا داد یا کلید NVIDIA تنظیم نشده بود،
+    خودکار به زنجیره‌ی مدل‌های Groq سوییچ می‌کند.
+    """
     last_error = None
 
     if os.environ.get("NVIDIA_API_KEY"):
